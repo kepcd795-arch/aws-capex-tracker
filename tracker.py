@@ -39,7 +39,7 @@ def fetch_aws_spot_prices():
         aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
     )
-    end_time = datetime.datetime.utcnow()
+    end_time = datetime.datetime.now(datetime.timezone.utc)
     start_time = end_time - datetime.timedelta(days=7)
 
     records = []
