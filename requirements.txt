@@ -4,3 +4,4 @@ streamlit
 plotly
 requests
 lxml
+pyarrow<25.0.0
