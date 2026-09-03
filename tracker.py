@@ -32,7 +32,6 @@ def init_db():
 
 def fetch_aws_spot_prices():
     instance_types = ["c6i.xlarge", "c7g.xlarge", "p4d.24xlarge"]
-    # Reads AWS keys from environment variables set in GitHub
     ec2 = boto3.client(
         "ec2",
         region_name="us-east-1",
@@ -61,18 +60,27 @@ def fetch_aws_spot_prices():
                     )
                 )
         except Exception as e:
-            print(f"Error pulling {itype}: {e}")
+            print(f"AWS EC2 Error for {itype}: {e}")
 
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.executemany("INSERT INTO spot_prices VALUES (?, ?, ?, ?)", records)
-    conn.commit()
-    conn.close()
+    if records:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT INTO spot_prices VALUES (?, ?, ?, ?)", records
+        )
+        conn.commit()
+        conn.close()
+        print(f"Logged {len(records)} AWS spot pricing records.")
+    else:
+        print("No AWS spot pricing records retrieved.")
 
 
 def fetch_odm_revenue(year, month):
-    url = f"https://mops.twse.com.tw/nas/t21/sii/t21sc03_{year}_{month}_0.html"
+    # Convert Gregorian year to Taiwan Minguo year (2026 -> 115)
+    tw_year = year - 1911
+    url = f"https://mops.twse.com.tw/nas/t21/sii/t21sc03_{tw_year}_{month}_0.html"
     headers = {"User-Agent": "Mozilla/5.0"}
+
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
@@ -84,20 +92,28 @@ def fetch_odm_revenue(year, month):
             }
             conn = sqlite3.connect(DB_NAME)
             cursor = conn.cursor()
+            inserted_count = 0
 
             for df in tables:
                 if "Company Code" in df.columns or "公司代號" in df.columns:
                     for _, row in df.iterrows():
                         code = str(row.iloc[0]).strip()
                         if code in odm_tickers:
-                            rev = int(str(row.iloc[2]).replace(",", ""))
-                            date_str = f"{year}-{month:02d}-01"
-                            cursor.execute(
-                                "INSERT OR REPLACE INTO odm_revenue VALUES (?, ?, ?, ?)",
-                                (date_str, code, odm_tickers[code], rev),
-                            )
+                            try:
+                                rev = int(str(row.iloc[2]).replace(",", ""))
+                                date_str = f"{year}-{month:02d}-01"
+                                cursor.execute(
+                                    "INSERT OR REPLACE INTO odm_revenue VALUES (?, ?, ?, ?)",
+                                    (date_str, code, odm_tickers[code], rev),
+                                )
+                                inserted_count += 1
+                            except ValueError:
+                                pass
             conn.commit()
             conn.close()
+            print(f"Logged {inserted_count} ODM revenue entries for {year}-{month:02d}.")
+        else:
+            print(f"MOPS fetch returned status code: {response.status_code}")
     except Exception as e:
         print(f"ODM fetch error: {e}")
 
@@ -105,8 +121,7 @@ def fetch_odm_revenue(year, month):
 if __name__ == "__main__":
     init_db()
     fetch_aws_spot_prices()
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(datetime.timezone.utc)
     fetch_odm_revenue(now.year, now.month - 1 if now.month > 1 else 12)
-
 
 
